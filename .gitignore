@@ -1,0 +1,28 @@
+# PlatformIO build artifacts
+.pio/
+
+# VS Code (필요 시 특정 파일만 허용)
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS / 환경
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+tmp/
+build/
+dist/
+
+# Secrets / 환경 변수
+.env
+.env.*
+
+# Python (있을 때만)
+__pycache__/
+*.pyc
+
+# Node (있을 때만)
+node_modules/
