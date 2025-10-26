@@ -1,57 +1,44 @@
-#define F_CPU 8000000UL
-#include <avr/io.h>
-#include <util/delay.h>
+#include <Arduino.h>
+#include <Wire.h> // I²C 통신
+#include <LiquidCrystal_I2C.h>
+#include <HX711.h>
+#include <EEPROM.h> // 전원이 꺼져도 데이터가 유지되는 작은 메모리 공간
 
-#define LED_PORT PORTA
-#define LED_DDR  DDRA
-#define LED_PIN  PA0
+#define LED_PIN     PA0 // LED
+#define BUZZER_PIN  PA1 // Buzzer
 
-/* ---------- UART0: 38400bps @ 8MHz ----------
-   UBRR = F_CPU/(16*BAUD) - 1
-   = 8,000,000/(16*38,400) - 1
-   = 12 (실효 약 38,461bps, 오차 ~0.16%) */
-static void uart0_init_38400(void) {
-    // 더블스피드 OFF
-    UCSR0A &= ~(1 << U2X0);
+// constexpr uint8_t => C++ 컴파일 시점 상수]
 
-    // Baud 설정
-    UBRR0H = 0;
-    UBRR0L = 12;
+// LiquidCrystal_I2C lcd(0x27, 16, 2)랑 같은말(제어)
+constexpr uint8_t LCD_ADDR   = 0x27;  // 보통 0x27 또는 0x3F
+constexpr uint8_t LCD_COLS   = 16;
+constexpr uint8_t LCD_ROWS   = 2;
 
-    // 8N1
-    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+// HX711 핀 (임의의 디지털 핀 2개)
+constexpr uint8_t HX_DT_PIN  = 6;   // HX711 DT
+constexpr uint8_t HX_SCK_PIN = 7;   // HX711 SCK
 
-    // TX Enable (RX 필요시 RXEN0 추가)
-    UCSR0B = (1 << TXEN0);
+// 측정/표시 파라미터
+constexpr uint16_t SAMPLE_AVG   = 5;   // 평균 샘플 수
+constexpr uint16_t UPDATE_MS    = 200; // LCD/로그 업데이트 주기(ms)
+constexpr uint16_t BEEP_MS      = 120; // 경고음 길이(ms)
+
+LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
+HX711 scale;
+
+void beep(uint16_t ms = BEEP_MS) {
+  PORTA |= (1 << BUZZER_PIN);
+  delay(ms);
+  PORTA &= ~(1 << BUZZER_PIN);
 }
 
-static void uart0_putc(char c) {
-    while (!(UCSR0A & (1 << UDRE0)));
-    UDR0 = c;
+void ledOn()  { PORTA |=  (1 << LED_PIN); }
+void ledOff() { PORTA &= ~(1 << LED_PIN); }
+
+void setup() {
+
 }
 
-static void uart0_print(const char* s) {
-    while (*s) uart0_putc(*s++);
-}
+void loop() {
 
-int main(void) {
-    // LED PA0: 출력, 초기 OFF
-    LED_DDR  |= (1 << LED_PIN);
-    LED_PORT &= ~(1 << LED_PIN);
-
-    // UART 초기화
-    uart0_init_38400();
-    uart0_print("\r\n=== ATmega128 8MHz / 38400bps ===\r\n");
-
-    while (1) {
-        // LED ON (5초)
-        LED_PORT |= (1 << LED_PIN);
-        uart0_print("LED ON\r\n");
-        _delay_ms(5000);
-
-        // LED OFF (5초)
-        LED_PORT &= ~(1 << LED_PIN);
-        uart0_print("LED OFF\r\n");
-        _delay_ms(5000);
-    }
 }
