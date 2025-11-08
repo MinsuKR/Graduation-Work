@@ -1,4 +1,4 @@
-#include <Arduino.h>
+/*#include <Arduino.h>
 #include <Wire.h> // I²C 통신
 #include <LiquidCrystal_I2C.h>
 #include <HX711.h>
@@ -41,4 +41,50 @@ void setup() {
 
 void loop() {
 
+}*/
+/*
+#include <Arduino.h>
+
+#define LED_PIN PB0 // ATmega128의 PORTA.0 핀에 LED 연결
+
+void setup() {
+    DDRG |= (1 << PG0) | (1 << PG1);
+    DDRB |= (1 << PB0);
+}
+
+void loop() {
+    PORTG |= (1 << PG0);
+    PORTG |= (1 << PG1);
+    PORTB |= (1 << PB0); // PB0 High
+    delay(500);
+
+    PORTG &= ~(1 << PG0);
+    PORTG &= ~(1 << PG1);
+    PORTB &= ~(1 << PB0); // PB0 Low
+    delay(500);
+}
+*/
+
+#include <Arduino.h>
+
+#define INNER_LED_PIN PG0 // ATmega128의 PORTG.0 핀에 내부 LED
+#define LED_PIN PA0 // ATmega128의 PORTB.0 핀에 LED 연결
+#define BUZZER_PIN PA1 // ATmega128의 PORTB.1 핀에 BUZZER 연결
+
+void setup() {
+    DDRG |= (1 << PG0);
+    DDRA |= (1 << PA0);
+    DDRA |= (1 << PA1);
+}
+
+void loop() {
+    PORTG |= (1 << PG0);
+    PORTA |= (1 << PA0); // PB0 High
+    PORTA |= (1 << PA1);
+    delay(500);
+
+    PORTG &= ~(1 << PG0);
+    PORTA &= ~(1 << PA0); // PB0 Low
+    PORTA &= ~(1 << PA1);
+    delay(500);
 }

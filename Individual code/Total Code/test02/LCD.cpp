@@ -1,3 +1,5 @@
+/* Test complete */
+// SDA = PD1 , SCL = PD0
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
