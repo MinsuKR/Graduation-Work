@@ -15,6 +15,7 @@ static ButtonEvent readButton(uint8_t pin) {
 void Button_Init() {
     pinMode(BTN_TARE_PIN, INPUT_PULLUP);
     pinMode(BTN_CAL_PIN, INPUT_PULLUP);
+    pinMode(BTN_SEND_PIN, INPUT_PULLUP);
 }
 
 ButtonEvent Button_ReadTare() {
@@ -23,4 +24,9 @@ ButtonEvent Button_ReadTare() {
 
 ButtonEvent Button_ReadCal() {
     return readButton(BTN_CAL_PIN);
+}
+
+ButtonEvent Button_ReadSend()
+{
+    return readButton(BTN_SEND_PIN);
 }

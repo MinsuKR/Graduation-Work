@@ -52,7 +52,7 @@ float b_coef = 1.0f;
 const uint8_t STABLE_SAMPLING   = 10;
 const uint8_t AVG_TARE_SAMPLES  = 20;
 const uint8_t AVG_CAL_SAMPLES   = 35;
-const uint8_t AVG_MEAS_SAMPLES  = 20;
+const uint8_t AVG_MEAS_SAMPLES  = 10;
 
 const long  STABLE_DIFF_MAX = 500;
 const float ZERO_SNAP_G     = 2.0f;
@@ -65,6 +65,10 @@ const float FACTOR_ABS_MAX = 1.0f;
 // 표시용 필터 상태값
 float DisplayW = 0.0f;
 float PrevW    = 0.0f;
+
+// 무게저장 전역변수 + 실제 측정 무게를 보증해주는 플래그 역할 true시 버튼 허용
+volatile float g_lastShown = 0.0f;     // 마지막 계산된 표시 무게(g)
+volatile bool  g_weightValid = false;  // 측정값 유효 여부
 
 // 현재 장치의 보정값들을 EEPROM(영구메모리)에 저장하는 함수
 void saveAllToEEPROM() {
@@ -102,10 +106,12 @@ void doTare(uint8_t avg = AVG_TARE_SAMPLES);
 void doCalibration();
 bool isStable(long* avg_out = nullptr);
 void measureLR(int samples, float &outL, float &outR);
+void handleEspAckOnLcd();
 
 void setup() 
 {
-    
+  //ESP32 UART 통신 시작
+  Serial.begin(9600);  
   // LED / Buzzer / Button 모듈 초기화
   LED_Init();
   Buzzer_Init();
@@ -174,8 +180,8 @@ void loop()
 
     if (waitReady(100)) {
         // 한 번 읽어서 무게 계산
-        long rawL = scaleL.read_average(20);
-        long rawR = scaleR.read_average(20);
+        long rawL = scaleL.read_average(5);
+        long rawR = scaleR.read_average(5);
 
         long netL = rawL - offsetL;
         long netR = rawR - offsetR;
@@ -199,10 +205,11 @@ void loop()
         DisplayW = Wtotal;
       }
 
-      PrevW = Wtotal;  // 지금은 크게 안 쓰이지만 일단 유지
-
       // x.x g 단위로 표현(원래대로)
       float shown = roundf(DisplayW * 10.0f) / 10.0f;
+
+      g_lastShown = shown;
+      g_weightValid = true;
 
       // ===== LCD 출력 =====
       lcd.setCursor(0, 0);
@@ -218,11 +225,16 @@ void loop()
       lcd.print(shown, 1);
       lcd.print("g    ");
 
+      // Serial.print("W=");
+      // Serial.println(shown, 1);
+
     } else {
       lcd.setCursor(0, 0); lcd.print("Waiting HX711  ");
       lcd.setCursor(0, 1); lcd.print("...            ");
     }
   }
+
+  handleEspAckOnLcd();
 
     // ===== 버튼 처리 =====
 
@@ -251,6 +263,43 @@ void loop()
   } else if (eCal == BTN_LONG) {
     // 장기 CAL 기능 필요하면 나중에 추가
   }
+
+  // ===== SEND 버튼 (무게 전송) =====
+  ButtonEvent eSend = Button_ReadSend();
+  if (eSend == BTN_SHORT) {
+    // // ESP32로 현재 무게 1회 전송
+    // Serial.print("W=");
+    // Serial.println(g_lastShown, 1);
+
+    // // 사용자 피드백
+    // Buzzer_Click();
+    // LED_Set(LEDSTATE_PROCESSING);
+
+    // lcd.setCursor(0, 0);
+    // lcd.print("SEND ");
+    // lcd.print(g_lastShown, 1);
+    // lcd.print("g   ");
+
+    // delay(1000);
+    // LED_Set(LEDSTATE_IDLE);
+    // 1행: SEND 표시
+  lcd.setCursor(0, 0);
+  lcd.print("SEND ");
+  lcd.print(g_lastShown, 1);
+  lcd.print("g    ");  // 뒤 지우기용
+
+  // 2행: RX 대기 표시
+  lcd.setCursor(0, 1);
+  lcd.print("RX: waiting... ");
+
+  // 전송
+  Serial.print("W=");
+  Serial.println(g_lastShown, 1);
+
+  Buzzer_Click();
+  LED_Set(LEDSTATE_PROCESSING);
+  }
+
 }
 
 // === HX711 준비 대기 ===
@@ -391,4 +440,35 @@ void measureLR(int samples, float &outL, float &outR) {
 
   outL = (float)netL * factorL;
   outR = (float)netR * factorR;
+}
+
+// ===== ESP32로부터 ACK 수신해서 LCD에 표시 =====
+void handleEspAckOnLcd() {
+  static char buf[48];
+  static uint8_t idx = 0;
+
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+
+    if (c == '\n') {
+      buf[idx] = '\0';
+      idx = 0;
+
+      // ACK 메시지가 오면 LCD에 표시 (예: "ACK W=123.4")
+      if (buf[0] != '\0') {
+        lcd.setCursor(0, 1);
+        // 16자 제한이라 앞부분만 출력
+        lcd.print("RX:");
+        // 남은 칸 지우면서 출력
+        for (int i = 3; i < 16; i++) lcd.print(" ");
+        lcd.setCursor(3, 1);
+        // buf를 13글자까지만 표시
+        for (int i = 0; i < 13 && buf[i] != '\0'; i++) lcd.print(buf[i]);
+      }
+    } else {
+      if (idx < sizeof(buf) - 1) buf[idx++] = c;
+      else idx = 0;
+    }
+  }
 }

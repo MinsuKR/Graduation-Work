@@ -52,7 +52,7 @@ float b_coef = 1.0f;
 const uint8_t STABLE_SAMPLING   = 10;
 const uint8_t AVG_TARE_SAMPLES  = 20;
 const uint8_t AVG_CAL_SAMPLES   = 35;
-const uint8_t AVG_MEAS_SAMPLES  = 20;
+const uint8_t AVG_MEAS_SAMPLES  = 10;
 
 const long  STABLE_DIFF_MAX = 500;
 const float ZERO_SNAP_G     = 2.0f;
@@ -174,8 +174,8 @@ void loop()
 
     if (waitReady(100)) {
         // 한 번 읽어서 무게 계산
-        long rawL = scaleL.read_average(20);
-        long rawR = scaleR.read_average(20);
+        long rawL = scaleL.read_average(5);
+        long rawR = scaleR.read_average(5);
 
         long netL = rawL - offsetL;
         long netR = rawR - offsetR;
@@ -199,8 +199,6 @@ void loop()
         DisplayW = Wtotal;
       }
 
-      PrevW = Wtotal;  // 지금은 크게 안 쓰이지만 일단 유지
-
       // x.x g 단위로 표현(원래대로)
       float shown = roundf(DisplayW * 10.0f) / 10.0f;
 
@@ -211,12 +209,16 @@ void loop()
       lcd.print("g ");
       lcd.print("R:");
       lcd.print(wR, 1);
-      lcd.print("g");
+      lcd.print("g ");
 
       lcd.setCursor(0, 1);
       lcd.print("TOT:");
       lcd.print(shown, 1);
       lcd.print("g    ");
+
+      // ===== ESP32로 무게 전송 =====
+      Serial.print("W=");
+      Serial.println(shown, 1);
 
     } else {
       lcd.setCursor(0, 0); lcd.print("Waiting HX711  ");
@@ -251,6 +253,7 @@ void loop()
   } else if (eCal == BTN_LONG) {
     // 장기 CAL 기능 필요하면 나중에 추가
   }
+  
 }
 
 // === HX711 준비 대기 ===
