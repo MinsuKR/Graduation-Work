@@ -1,0 +1,12 @@
+#ifndef JSON_MINI_H
+#define JSON_MINI_H
+
+#include <Arduino.h>
+
+String JsonPickString(const String& json, const char* key); // grade, meat_type
+String JsonPickQuotedString(const String& json, const char* key);
+bool   JsonPickBool(const String& json, const char* key);   // success
+float  JsonPickCombined(const String& json);                // confidence.combined (0~1)
+int    JsonCombinedToPct(float v01);                        // 0~1 -> 0~100 (정수), 실패면 -1
+
+#endif

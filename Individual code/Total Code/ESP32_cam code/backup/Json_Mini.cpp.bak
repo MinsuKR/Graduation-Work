@@ -1,0 +1,74 @@
+#include "Json_Mini.h"
+#include <math.h>
+
+// 문자열과 숫자를 모두 처리할 수 있는 범용 파서
+String JsonPickString(const String& json, const char* key) {
+  String k = String("\"") + key + "\":";
+  int p = json.indexOf(k);
+  if (p < 0) return "";
+  p += k.length();
+
+  // 공백 및 콜론 건너뛰기
+  while (p < (int)json.length() && (json[p] == ' ' || json[p] == ':')) p++;
+  if (p >= (int)json.length()) return "";
+
+  if (json[p] == '\"') { // 문자열 값인 경우
+    p++;
+    int e = json.indexOf('\"', p);
+    if (e < 0) return "";
+    return json.substring(p, e);
+  } else { // 숫자나 불리언 값인 경우
+    int e = p;
+    while (e < (int)json.length() && json[e] != ',' && json[e] != '}' && json[e] != ' ') {
+      e++;
+    }
+    return json.substring(p, e);
+  }
+}
+
+String JsonPickQuotedString(const String& json, const char* key) {
+  String k = String("\"") + key + "\":";
+  int searchFrom = 0;
+
+  while (searchFrom < (int)json.length()) {
+    int p = json.indexOf(k, searchFrom);
+    if (p < 0) return "";
+    p += k.length();
+
+    // 공백 건너뛰기
+    while (p < (int)json.length() && json[p] == ' ') p++;
+    if (p >= (int)json.length()) return "";
+
+    if (json[p] == '\"') {
+      // ★ 문자열 값 발견 — 이것만 반환
+      p++;
+      int e = json.indexOf('\"', p);
+      if (e < 0) return "";
+      return json.substring(p, e);
+    }
+
+    // 숫자/불리언 → 다음 매칭으로 건너뜀
+    searchFrom = p + 1;
+  }
+  return "";
+}
+
+bool JsonPickBool(const String& json, const char* key) {
+  String val = JsonPickString(json, key);
+  val.toLowerCase();
+  return (val == "true");
+}
+
+float JsonPickCombined(const String& json) {
+  String val = JsonPickString(json, "combined");
+  if (val == "") return NAN;
+  return val.toFloat();
+}
+
+int JsonCombinedToPct(float v01) {
+  if (isnan(v01) || isinf(v01)) return -1;
+  float x = v01 * 100.0f;
+  if (x < 0) x = 0;
+  if (x > 100) x = 100;
+  return (int)lroundf(x);
+}

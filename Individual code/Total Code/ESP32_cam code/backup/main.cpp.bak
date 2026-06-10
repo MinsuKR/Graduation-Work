@@ -1,0 +1,219 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include "esp_camera.h"
+
+#include "Cam_Unit.h"
+#include "Wifi_Unit.h"
+#include "Json_Mini.h"
+#include "Sd_Store.h"
+
+#define FLASH_LED 4
+
+// static const char* WIFI_SSID  = "KMS";
+// static const char* WIFI_PASS  = "kimminsoo";
+// static const char* SERVER_URL = "http://172.20.10.4:5000/api/predict";
+
+static const char* WIFI_SSID = "LDH";
+static const char* WIFI_PASS = "dlehdgns2001@";
+static const char* SERVER_URL = " /api/predict";
+
+
+static bool   g_inProgress = false;
+static String g_line = "";
+static String g_lastIp = "0.0.0.0";
+
+// ---------- ATmega로 전송 (포맷: "ACK ...") ----------
+static void sendAck(const String& msg) {
+  Serial.print("ACK ");
+  Serial.println(msg);
+  Serial.flush();
+}
+
+// ---------- 진행 단계 표시: "ACK B ST=XXX IP=..." ----------
+static void sendProgress(const char* stage) {
+  String msg = "B ST=";
+  msg += stage;
+  msg += " IP=";
+  msg += g_lastIp;
+  sendAck(msg);
+}
+
+// ---------- HTTP 응답에서 JSON 바디만 빠르게 읽기 ----------
+static bool readHttpJsonQuick(WiFiClient& client, String& outBody, uint32_t maxWaitMs) {
+  uint32_t t0 = millis();
+
+  while (!client.available() && client.connected() && (millis() - t0 < maxWaitMs)) {
+    delay(10);
+  }
+  if (!client.available()) return false;
+
+  String statusLine = client.readStringUntil('\n');
+  if (statusLine.indexOf("200") < 0) return false;
+
+  while (client.connected() && (millis() - t0 < maxWaitMs)) {
+    String h = client.readStringUntil('\n');
+    if (h == "\r" || h.length() == 0) break;
+  }
+
+  outBody = "";
+  bool started = false;
+  int depth = 0;            // ★ 중괄호 깊이 추적
+  bool inString = false;    // ★ 문자열 내부 여부 (중괄호 오인 방지)
+  char prev = 0;            // ★ 이전 문자 (이스케이프 처리)
+
+  while (millis() - t0 < maxWaitMs) {
+    while (client.available()) {
+      char c = (char)client.read();
+
+      if (!started) {
+        if (c == '{') {
+          started = true;
+          depth = 1;
+          outBody += c;
+        }
+      } else {
+        outBody += c;
+
+        // 문자열 내부의 { } 는 무시해야 함
+        if (c == '\"' && prev != '\\') {
+          inString = !inString;
+        } else if (!inString) {
+          if (c == '{') depth++;
+          else if (c == '}') {
+            depth--;
+            if (depth == 0) return true;   // ★ 최외곽 } 에서만 종료
+          }
+        }
+
+        prev = c;
+        if (outBody.length() > 4096) return true;
+      }
+    }
+    if (!client.connected() && !client.available()) break;
+    delay(1);
+  }
+
+  return outBody.length() > 0;
+}
+
+
+// ---------- 메인 처리 ----------
+static void handleLine(String s) {
+  if (s.indexOf("PIC") < 0) return;
+  if (g_inProgress) { sendAck("B ST=BUSY IP=" + g_lastIp); return; }
+  g_inProgress = true;
+
+  if (!WifiUnit_Ensure(WIFI_SSID, WIFI_PASS)) {
+    sendAck("F R=WIFI IP=0.0.0.0");
+    g_inProgress = false; return;
+  }
+  g_lastIp = WiFi.localIP().toString();
+
+  // [1] 촬영
+  sendProgress("CAM");
+  camera_fb_t* fb = CamUnit_Capture(FLASH_LED);
+  if (!fb) {
+    sendAck("F R=CAM IP=" + g_lastIp);
+    g_inProgress = false; return;
+  }
+
+  // [2] SD 저장
+  sendProgress("SD");
+  if (SdStore_IsReady()) {
+    String path;
+    if (SdStore_SaveJpg(fb->buf, fb->len, path)) {
+      sendAck("SD OK P=" + path);
+    } else {
+      sendAck("SD FAIL");
+    }
+  } else {
+    sendAck("SD NA");
+  }
+  
+  delay(1500); // ATmega LCD가 SD 상태를 출력할 시간 확보
+
+  // [3] HTTP 전송
+  sendProgress("HTTP");
+  WiFiClient client;
+  if (client.connect("10.237.180.99", 5000)) {
+    String boundary = "----ESP32";
+    String head = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+    String tail = "\r\n--" + boundary + "--\r\n";
+    uint32_t len = head.length() + fb->len + tail.length();
+
+    client.print("POST /api/predict HTTP/1.1\r\n");
+    client.print("Host: 10.237.180.99\r\n");
+    client.print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
+    client.print("Content-Length: " + String(len) + "\r\n");
+    client.print("Connection: close\r\n\r\n");
+
+    client.print(head);
+    client.write(fb->buf, fb->len);
+    client.print(tail);
+
+    String body;
+    if (readHttpJsonQuick(client, body, 60000)) {
+      // ✅ 서버 규격에 맞춘 정밀 파싱
+      String grade = JsonPickQuotedString(body, "grade");      // "1+"
+      String mt    = JsonPickQuotedString(body, "meat_type");  // "pork"
+      
+      // ✅ 중첩된 "combined": 0.913... 를 찾기 위해 명확한 키 전달
+      String combStr = JsonPickString(body, "combined"); 
+      int conf = JsonCombinedToPct(combStr.toFloat());   // 91
+
+      // ✅ 1단계 전송: "ACK OK G=1+ T=pork C=91"
+      sendAck("OK G=" + grade + " T=" + mt + " C=" + String(conf));
+      
+      delay(1500); // ATmega가 첫 줄 결과를 처리하고 Buzzer를 울릴 여유
+
+      // ✅ 2단계 전송: "ACK W=100.0 IP=10.196..."
+      int wPos = s.indexOf("W=");
+      String wVal = (wPos >= 0) ? s.substring(wPos + 2, s.indexOf(';', wPos)) : "0";
+      wVal.trim();
+      sendAck("W=" + wVal + " IP=" + g_lastIp);
+    } else {
+      sendAck("F R=SERVER IP=" + g_lastIp);
+    }
+    client.stop();
+  } else {
+    sendAck("F R=CONN IP=" + g_lastIp);
+  }
+
+  CamUnit_Release(fb);
+  g_inProgress = false;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // pinMode(FLASH_LED, OUTPUT);
+  // digitalWrite(FLASH_LED, LOW);
+
+  CamUnit_Begin();
+
+  // WiFi
+  WifiUnit_Ensure(WIFI_SSID, WIFI_PASS);
+  g_lastIp = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "0.0.0.0";
+
+  // SD
+  delay(500);
+  bool sdOk = SdStore_Begin();
+
+  // 부팅 ACK
+  // SD 상태도 같이 보고 싶으면 아래처럼
+  sendAck(String("BOOT OK IP=") + g_lastIp + (sdOk ? " SD=OK" : " SD=FAIL"));
+}
+
+void loop() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n') {
+      if (g_line.length() > 0) handleLine(g_line);
+      g_line = "";
+    } else if (c != '\r') {
+      g_line += c;
+      if (g_line.length() > 250) g_line = "";
+    }
+  }
+}
+

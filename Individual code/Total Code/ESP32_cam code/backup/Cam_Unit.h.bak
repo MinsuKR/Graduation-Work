@@ -1,0 +1,19 @@
+#ifndef CAM_UNIT_H
+#define CAM_UNIT_H
+
+#include <Arduino.h>
+#include "esp_camera.h"
+
+// 카메라 초기화
+bool CamUnit_Begin();
+
+// 플래시 켜고 촬영. 성공하면 fb 반환(실패면 nullptr)
+camera_fb_t* CamUnit_Capture(int flashPin);
+
+// fb 반환(메모리 반납)
+void CamUnit_Release(camera_fb_t* fb);
+
+// 캡처가 꼬일 때 복구용 (deinit/init)
+void CamUnit_Recover();
+
+#endif

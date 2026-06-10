@@ -1,0 +1,145 @@
+
+ /*
+ * ESP32-CAM 브릿지 - ATmega128 ↔ 라즈베리파이 양방향 통신
+ *
+ * 구조:
+ *   ATmega128 --UART0--> ESP32-CAM --WiFi--> 라즈베리파이(TCP서버)
+ *
+ * 배선:
+ *   ATmega128 PE1 (TX0) → ESP32-CAM GPIO3 (RX/U0RXD)
+ *   ATmega128 PE0 (RX0) ← ESP32-CAM GPIO1 (TX/U0TXD)
+ *   ATmega128 GND       ↔ ESP32-CAM GND
+ *
+ * 주의: ESP32-CAM의 Serial(GPIO1/GPIO3)은 USB 시리얼과 공유됨
+ *       코드 업로드 시 ATmega128 연결을 분리할 것
+ *
+ * 핫스팟: ldh / dlehdgns2001
+ * WiFi_Unit.cpp + WiFi_Unit.h
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+
+// ===== 핫스팟 정보 =====
+static const char* WIFI_SSID = "ldh";
+static const char* WIFI_PASS = "dlehdgns2001";
+
+// ===== 라즈베리파이 TCP 서버 정보 =====
+static const char* PI_SERVER_IP   = "10.221.11.227";  // ★ 라즈베리파이 IP
+static const uint16_t PI_SERVER_PORT = 8080;
+
+// ===== 내부 변수 =====
+static WiFiClient tcpClient;
+static unsigned long lastReconnect = 0;
+static String tcpReadBuf;
+static String uartBuf;
+static bool lastWifiOk = false;
+static bool lastServerOk = false;
+
+// ATmega128에 메시지 전송 (Serial = GPIO1/GPIO3 = UART0)
+static void sendAck(const String& s) {
+    Serial.println(s);
+}
+
+static bool sendLine(const String& line) {
+    if (!tcpClient.connected()) return false;
+    tcpClient.println(line);
+    return true;
+}
+
+static bool readLine(String& outLine) {
+    while (tcpClient.available()) {
+        char c = tcpClient.read();
+        if (c == '\n') {
+            outLine = tcpReadBuf;
+            outLine.trim();
+            tcpReadBuf = "";
+            if (outLine.length() > 0) return true;
+        } else if (c != '\r') {
+            if (tcpReadBuf.length() < 512) tcpReadBuf += c;
+        }
+    }
+    return false;
+}
+
+static void reconnectLoop() {
+    if (millis() - lastReconnect < 5000) return;
+    lastReconnect = millis();
+    if (WiFi.status() != WL_CONNECTED) {
+        WiFi.begin(WIFI_SSID, WIFI_PASS);
+        return;
+    }
+    if (!tcpClient.connected()) {
+        tcpClient.connect(PI_SERVER_IP, PI_SERVER_PORT);
+    }
+}
+
+static void handleLine(const String& line) {
+    if (!tcpClient.connected()) {
+        sendAck("ERROR: 서버 미연결");
+        return;
+    }
+    if (sendLine(line)) {
+        sendAck("OK: 전송완료");
+    } else {
+        sendAck("ERROR: 전송실패");
+    }
+}
+
+void setup() {
+    // Serial = UART0 = GPIO1(TX) / GPIO3(RX) = ATmega128 연결
+    Serial.begin(115200);
+    delay(300);
+
+    sendAck("ESP32 부팅");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+        delay(200);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        sendAck("WIFI OK IP=" + WiFi.localIP().toString());
+        tcpClient.connect(PI_SERVER_IP, PI_SERVER_PORT);
+        if (tcpClient.connected()) {
+            sendAck("서버 연결 성공");
+        } else {
+            sendAck("서버 연결 실패");
+        }
+    } else {
+        sendAck("WIFI 연결 실패");
+    }
+}
+
+void loop() {
+    reconnectLoop();
+
+    bool wifiOk = (WiFi.status() == WL_CONNECTED);
+    bool serverOk = tcpClient.connected();
+    if (wifiOk && !lastWifiOk)     sendAck("WIFI OK IP=" + WiFi.localIP().toString());
+    if (serverOk && !lastServerOk) sendAck("서버 연결 성공");
+    lastWifiOk = wifiOk;
+    lastServerOk = serverOk;
+
+    // ===== ATmega128 → ESP32 수신 (Serial = UART0 = GPIO3 RX) =====
+    while (Serial.available() > 0) {
+        char c = (char)Serial.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            if (uartBuf.length() > 0) {
+                handleLine(uartBuf);
+                uartBuf = "";
+            }
+        } else {
+            if (uartBuf.length() < 255) uartBuf += c;
+        }
+    }
+
+    // ===== 라즈베리파이 → ATmega128 (Serial = UART0 = GPIO1 TX) =====
+    String netLine;
+    if (readLine(netLine)) {
+        sendAck(netLine);
+    }
+}

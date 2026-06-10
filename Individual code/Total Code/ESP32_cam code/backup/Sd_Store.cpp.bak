@@ -1,0 +1,49 @@
+#include "Sd_Store.h"
+#include "FS.h"
+#include "SD_MMC.h"
+
+// 내부 상태
+static bool g_sdReady = false;
+static uint32_t g_idx = 0;
+
+bool SdStore_IsReady() {
+  return g_sdReady;
+}
+
+bool SdStore_Begin() {
+  // AI Thinker ESP32-CAM은 SD_MMC 사용.
+  // 두 번째 인자 true = 1-bit 모드(충돌 줄고 안정적)
+  if (!SD_MMC.begin("/sdcard", true)) {
+    g_sdReady = false;
+    return false;
+  }
+
+  uint64_t cardSize = SD_MMC.cardSize();
+  if (cardSize == 0) {
+    g_sdReady = false;
+    return false;
+  }
+
+  g_sdReady = true;
+  return true;
+}
+
+bool SdStore_SaveJpg(const uint8_t* data, size_t len, String& outFullPath) {
+  outFullPath = "";
+  if (!g_sdReady || !data || len == 0) return false;
+
+  // 파일명 증가
+  g_idx++;
+  char name[48];
+  snprintf(name, sizeof(name), "/IMG_%06lu.jpg", (unsigned long)g_idx);
+  outFullPath = String(name);
+
+  File f = SD_MMC.open(outFullPath.c_str(), FILE_WRITE);
+  if (!f) return false;
+
+  size_t w = f.write(data, len);
+  f.flush();
+  f.close();
+
+  return (w == len);
+}

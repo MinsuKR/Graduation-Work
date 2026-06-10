@@ -1,0 +1,129 @@
+#include "Cam_Unit.h"
+
+// ===== AI Thinker ESP32-CAM 핀맵 =====
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+static camera_config_t g_cfg;
+static bool g_cfgInit = false;
+
+static void buildConfig() {
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer   = LEDC_TIMER_0;
+
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+
+  config.pin_xclk  = XCLK_GPIO_NUM;
+  config.pin_pclk  = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href  = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn  = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+
+  // 안정 우선 QVGA
+  config.frame_size   = FRAMESIZE_VGA;
+
+  // 숫자가 낮을수록 고화질(적은 압축), 높을수록 저화질(많은 압축) => 높이면 화질은 줄지만 속도가 빨라짐
+  config.jpeg_quality = 10; 
+
+  config.fb_count     = 1;
+
+  g_cfg = config;
+  g_cfgInit = true;
+}
+
+// bool CamUnit_Begin() {
+//   buildConfig();
+//   esp_err_t err = esp_camera_init(&g_cfg);
+//   return (err == ESP_OK);
+// }
+bool CamUnit_Begin() {
+  buildConfig();
+  esp_err_t err = esp_camera_init(&g_cfg);
+  
+  if (err == ESP_OK) {
+    // ★ 카메라 센서 색상 설정 추가
+    sensor_t * s = esp_camera_sensor_get();
+    if (s) {
+      s->set_whitebal(s, 1);       // 화이트밸런스 ON
+      s->set_awb_gain(s, 1);       // 자동 화이트밸런스 게인 ON
+      s->set_wb_mode(s, 0);        // Auto 모드
+      s->set_saturation(s, 1);     // 채도 약간 높임 (+1)
+      s->set_brightness(s, 0);     // 밝기 기본
+      s->set_contrast(s, 0);       // 대비 기본
+    }
+    
+    // ★ 초기 프레임 3장 버리기 (색상 안정화)
+    for (int i = 0; i < 3; i++) {
+      camera_fb_t *fb = esp_camera_fb_get();
+      if (fb) esp_camera_fb_return(fb);
+      delay(100);
+    }
+  }
+  
+  return (err == ESP_OK);
+}
+
+camera_fb_t* CamUnit_Capture(int flashPin) {
+  // 1. 센서 버퍼에 남아있는 오래된 프레임 날리기 (중요!)
+  camera_fb_t* old_fb = esp_camera_fb_get();
+  if (old_fb) {
+    esp_camera_fb_return(old_fb);
+  }
+
+  // 2. 플래시 제어
+  if (flashPin >= 0) {
+    // digitalWrite(flashPin, HIGH);
+    delay(200); // 노출 시간을 위해 조금 더 대기
+  }
+
+  // 3. 실제 전송할 최신 사진 촬영
+  camera_fb_t* fb = esp_camera_fb_get();
+
+  if (flashPin >= 0) {
+    // digitalWrite(flashPin, LOW);
+  }
+
+  return fb;
+}
+
+void CamUnit_Release(camera_fb_t* fb) {
+  if (fb) esp_camera_fb_return(fb);
+}
+
+void CamUnit_Recover() {
+  // 카메라가 꼬이는 경우가 있어 재초기화
+  esp_camera_deinit();
+  delay(100);
+
+  if (!g_cfgInit) buildConfig();
+  esp_camera_init(&g_cfg);
+  delay(100);
+}

@@ -2,11 +2,12 @@
 #define BUTTON_H
 
 #include <Arduino.h>
+#include "PinMap.h"
 
 // ATmega128 핀 (지금 네 코드와 맞춤)
-#define BTN_TARE_PIN PIN_PE4
-#define BTN_CAL_PIN  PIN_PE5
-#define BTN_SEND_PIN PIN_PE6
+#define BTN_TARE_PIN PIN_SW_TARE
+#define BTN_CAL_PIN  PIN_SW_CAL
+#define BTN_SEND_PIN PIN_SW_SEND
 
 enum ButtonEvent {
     BTN_NONE=0,
@@ -21,4 +22,6 @@ ButtonEvent Button_ReadTare();
 ButtonEvent Button_ReadCal();
 ButtonEvent Button_ReadSend();
 
+
 #endif
+

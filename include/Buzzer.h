@@ -2,8 +2,9 @@
 #define BUZZER_H
 
 #include <Arduino.h>
+#include "PinMap.h"
 
-#define BUZZER_PIN PIN_PA7
+#define BUZZER_PIN PIN_BUZZER
 
 void Buzzer_Init();
 

@@ -1,0 +1,15 @@
+#ifndef SD_STORE_H
+#define SD_STORE_H
+
+#include <Arduino.h>
+
+// SD 초기화 성공 여부
+bool SdStore_Begin();
+
+// JPG 저장: 성공 시 outFullPath에 "/sdcard/IMG_000001.jpg" 같은 경로 반환
+bool SdStore_SaveJpg(const uint8_t* data, size_t len, String& outFullPath);
+
+// SD 사용 가능 여부
+bool SdStore_IsReady();
+
+#endif
